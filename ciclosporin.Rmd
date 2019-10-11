@@ -1,0 +1,703 @@
+---
+title: "ciclosporin"
+output: word_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, comment = NA)
+#this chunk is used to silence code, warnings, comments and hash from appearing in output
+options(scipen = 999)
+```
+
+# Statistical analysis
+
+
+Data are summarised as frequencies and percentages for categorical variables and median and range for continuous variables. Multinomial logistic regression was applied to identify factors that affect dose needed to reach desired plasma level.  Next, predicted probabilities for reaching desired plasma level under different doses and risk factors were calculated. Generalized estimating equation(GEE) was used to detect effect of risk factors on ciclosporin plasma level, taking into consideration the repeated ciclosporin measurments. In addition, the population average, based on the GEE model was calculated. Finally, weighted time dependent cox regression was used to detect effect of risk factors on time to GVHD development. R Foundation for Statistical Computing, Vienna, Austria version 3.6.0 was used for the statistical analysis. R packages used in the analysis were OptimalCutpoints version 1.1.4 for detecting optimal cut-off points from ROC analysis, coxphw version 4.0.1 for weighted cox regression , emmeans version 1.3.4 for calculating population mean from gee model and nnet version 7.3-12 for multinomial logistic regression and geepack version 1.2-1 for generalized estimation equation.  
+
+```{r}
+# Logistic regression
+
+### what is the probability, given the following risk factors, that the patient will first reach the level at these doses ?
+```
+
+# Results 
+
+```{r}
+library(finalfit)
+library(flextable)
+require(foreign)
+require(nnet)
+require(ggplot2)
+require(reshape2)
+library(rio)
+library(broom)
+library(tidyverse)
+library(knitr)
+library(geepack)
+library(doBy)
+library(coxphw) 
+library(emmeans)  # for calculating population mean from gee model 
+library(survival)
+library("ggplot2")
+library("ROCR")
+library("verification")
+library(OptimalCutpoints)
+library(table1)
+
+rmdtbl <- function(df){
+  
+tbl_alpha <- autofit(theme_vanilla(flextable(df)))
+
+tbl_alpha <- bg(tbl_alpha, bg = "blue", part = "header")
+tbl_alpha <- color(tbl_alpha, color = "white", part = "header")
+
+
+bes <- align(tbl_alpha, align = "center")
+
+bes <- align_text_col(bes, align = "center")
+return(bes)
+
+}
+
+
+data <- import("final 23-9.xlsx")
+
+names(data)<-make.names(names(data),unique = TRUE)
+
+data$age_bin <- cut(data$Age.at.time.of.SCT., c(0, 6.5, 9, 100), labels = c("<=6.5","6.5 - 9", ">9"))
+
+data$Recipient.s.DiagNosis <- as.factor(data$Recipient.s.DiagNosis)
+
+explanatory = c("Recipient.s.Gender."
+, "Age.at.time.of.SCT.", "age_bin"
+, "Recipient.s.DiagNosis", "Product.Type", "ImmuNo.prophylaxis")
+
+
+tbl2 <- c("Antifungal.s..", "GVHD", "CSA.toxicity", "organ...20", "srcr.D.2", "wt..D.2")
+
+data %>%
+  mutate(
+        Recipient.s.Gender. = ff_label(Recipient.s.Gender., "Recipient gender"),
+        Recipient.s.DiagNosis = ff_label(Recipient.s.DiagNosis , "Recipient diagnosis"),
+        age_bin = ff_label(age_bin, "Age grouped"),
+        Product.Type = ff_label(Product.Type, "Product type"),
+        ImmuNo.prophylaxis = ff_label(ImmuNo.prophylaxis, "GVHD prophylaxis"),
+        Age.at.time.of.SCT.	 = ff_label(Age.at.time.of.SCT.	, "Age"),
+        CSA.toxicity	 = ff_label(CSA.toxicity	, "Ciclosporin toxicity"),
+        organ...20 = ff_label(organ...20, "Type of ciclosporin toxicity")
+    ) %>% 
+  summary_factorlist(explanatory = explanatory, column = T) -> t
+#> Warning in chisq.test(tab, correct = FALSE): Chi-squared approximation may
+#> be incorrect
+names(t) <- c("Factor", "levels", "Frequency (%)")
+rmdtbl(t)
+
+```
+
+table 1 patients' characteristics 
+
+Among the 119 patients, almost one third were females. The most common diagnosis was acute myleoid leukemia accounting for 29.4% of the cases. Optimal number of optimal cut-off points was determined to be two, with values of 6.5 and 9 using the R package "OptimalCutpoints". Thus, age has been categorized into three categories; "less than or equal 6.5", "6.5 to 9" and "more than 9". 
+
+```{r}
+
+data$GVHD <- as.factor(data$GVHD)
+
+data$organ...20 <- as.factor(data$organ...20)
+data$Antifungal.s.. <- as.factor(data$Antifungal.s..)
+levels(data$Antifungal.s..) <- c("Fluconazole", "Posaconazole", "voriconazole"  , "voriconazole", "voriconazole", "voriconazole","voriconazole" )
+
+data %>%
+  mutate(
+        Recipient.s.Gender. = ff_label(Recipient.s.Gender., "Recipient gender"),
+        Recipient.s.DiagNosis = ff_label(Recipient.s.DiagNosis, "Recipient diagnosis"),
+        Product.Type = ff_label(Product.Type, "Product type"),
+        ImmuNo.prophylaxis = ff_label(ImmuNo.prophylaxis, "GVHD prophylaxis"),
+        Age.at.time.of.SCT.	 = ff_label(Age.at.time.of.SCT.	, "Age"),
+        CSA.toxicity	 = ff_label(CSA.toxicity, "Ciclosporin toxicity"),
+        organ...20 = ff_label(organ...20, "Type of ciclosporin toxicity")
+    ) %>% 
+  summary_factorlist(explanatory = tbl2, column = T, na_include = T) -> t
+#> Warning in chisq.test(tab, correct = FALSE): Chi-squared approximation may
+#> be incorrect
+names(t) <- c("Factor", "levels", "Frequency (%)")
+rmdtbl(t)
+
+```
+table 2 Transplantion,  anti-fungal prescribed, development and type of cyclosporin toxicity and GVHD are illustrated in table2. Age has been categorized to allow for risk stratification of patients.
+
+
+```{r}
+
+# ROC curve for detecting cut-off for age
+
+# Diagnostics and model fit: Unlike logistic regression where there are many statistics for performing model diagnostics, it is not as straightforward to do diagnostics with multinomial logistic regression models. For the purpose of detecting outliers or influential data points, one can run separate logit models and use the diagnostics tools on each model.
+
+# Empty cells or small cells: You should check for empty or small cells by doing a cross-tabulation between categorical predictors and the outcome variable. If a cell has very few cases (a small cell), the model may become unstable or it might not even run at all.
+
+
+# # THE NEXT LINES ARE FOR DETECTING THE CUT-OFF using ROC and for changing the logistic regression into a binary logistic regression
+# # 
+data$dose_bin <- cut(data$Dose.to.reach.Optimum.level, c(0, 1.5, 6), labels = c("less than or equal 1.5", "more than 1.5"))
+
+data$dose_bin <- car::recode(data$dose_bin, "'less than or equal 1.5' = 0; 'more than 1.5' = 1")
+ 
+
+# pred <- with(data,prediction(data$Age.at.time.of.SCT.,data$dose_bin, label.ordering = c(1, 0)))
+# perf <- performance(pred,"tpr", "fpr")
+# auc <-performance(pred, measure = "auc")@y.values[[1]]
+# rd <- data.frame(x=perf@x.values[[1]],y=perf@y.values[[1]])
+# p <- ggplot(rd,aes(x=x,y=y)) + geom_path(size=1)
+# p <- p + geom_segment(aes(x=0,y=0,xend=1,yend=1),colour="black",linetype= 2)
+# p <- p + geom_text(aes(x=1, y= 0, hjust=1, vjust=0, label=paste(sep = "", "AUC = ",round(auc,3) )),colour="black",size=4)
+# p <- p + scale_x_continuous(name= "False positive rate")
+# p <- p + scale_y_continuous(name= "True positive rate")
+# p
+# 
+# opt.cut = function(perf, pred){
+#   cut.ind = mapply(FUN=function(x, y, p){
+#     d = (x - 0)^2 + (y-1)^2
+#     ind = which(d == min(d))
+#     c(sensitivity = y[[ind]], specificity = 1-x[[ind]],
+#       cutoff = p[[ind]])
+#   }, perf@x.values, perf@y.values, pred@cutoffs)
+# }
+# 
+# print(opt.cut(perf, pred))
+
+# here I was trying to detect multiple cut points, however, it gave me a large list of possible cut points 
+ 
+ 
+# opt_cut <- cutpointr(data, Age.at.time.of.SCT., dose_bin, metric = sum_sens_spec, 
+#                      tol_metric = 0.05)
+# 
+# opt_cut$optimal_cutpoint
+# opt_cut %>% 
+#   select(optimal_cutpoint, sum_sens_spec) %>% 
+#   unnest
+# 
+# plot(opt_cut)
+# 
+ 
+# here I tried to figure out the optimal number of cut points. It yielded only 1 
+ 
+# optimal.cutpoint<-optimal.cutpoints(X = "Age.at.time.of.SCT.", status = "dose_bin", tag.healthy = 1, methods = "CB", data = data, pop.prev = NULL, ci.fit = TRUE, conf.level = 0.95, trace = FALSE)   # http://smart-statistics.com/handling-roc-curves/
+
+# summary(optimal.cutpoint)
+# 
+# plot(optimal.cutpoint)
+
+#table(data$Age.at.time.of.SCT.)
+
+```
+
+
+```{r}
+
+
+data$voriconazole <- data$Antifungal.s..
+
+
+levels(data$voriconazole) <- c("no_voriconazole", "no_voriconazole", "voriconazole")
+
+
+data$Recipient.s.Gender.[data$Recipient.s.Gender. == "Male"] <- 1
+data$Recipient.s.Gender.[data$Recipient.s.Gender. == "Female"] <- 0
+
+# We chose the multinom function because it does not require the data to be reshaped (as the mlogit package does)
+
+data$op_dose <- cut(data$Dose.to.reach.Optimum.level, c(0, 1.5, 100), labels = c("less than or equal 1.5", "more than 2"))
+
+data$op_dose <- relevel(data$op_dose, ref = "less than or equal 1.5")
+
+# the reference was chosen to be less or equal to 1.5 because it has the largest number of patients
+
+# data$age_code <- as.factor(data$age_code)
+
+# test <- multinom(op_dose ~ voriconazole , data = data)
+#
+#
+# tidy(test)
+#
+ #test <- multinom(op_dose ~ Recipient.s.Gender. , data = data)
+ #tidy(test)
+#
+
+ #test <- multinom(op_dose ~ age_bin , data = data)
+# #tidy(test)
+# 
+# 
+# test <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_bin, data = data)
+# 
+# test <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_bin, data = data)
+# 
+# 
+# 
+ test <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_bin, data = data)
+# 
+ test_ph <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_bin + phenytoin, data = data)
+# 
+# 
+# 
+# # adding phenytoin makes gender not significant, however, gender was significant when age had 3 categories 
+# 
+# # testa <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code + voriconazole*Recipient.s.Gender., data = data) # voriconazole and gender not significant, yet value of estimate is really strange 
+# # 
+# # testb <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code + voriconazole*age_code, data = data) # voriconazole * age not significant
+# #   
+# # testc <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code + age_code * Recipient.s.Gender., data = data) # gender and age are significant for age2 in the high dose only with a very weird estimate
+# 
+# testd <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code + voriconazole * Recipient.s.Gender., data = data) # gender and voriconazole are not significant 
+# 
+# test2 <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code , data = data)
+# 
+# test3 <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code + voriconazole * Recipient.s.Gender. + voriconazole*age_code + age_code*Recipient.s.Gender. , data = data)
+# 
+# test4 <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code + voriconazole * age_code * Recipient.s.Gender., data = data)
+# 
+# test5 <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. +  voriconazole * Recipient.s.Gender., data = data)
+# 
+# test6 <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. , data = data)
+# 
+# test_age_cont <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + data$age_SCT, data = data)
+# 
+# test_age_cont_int <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + data$age_SCT + voriconazole* Recipient.s.Gender., data = data)  # adding the interaction term makes only age significant, voriconazole is sig only in 1.51 to 2.5
+
+# 
+n <- tidy(test, exponentiate = T, conf.int = T)
+
+n <- n[, c(1,2,3,6,7,8)]
+
+colnames(n) <- c("Dose to reach optimum level", "risk", "OR", "p-value", "low CI", "high CI")
+
+#kable(n, digits = 3)
+
+# deviance of 121 in comparison with 164 for null model and 144 for model without age .. this was when we had 3 categories for age
+library(finalfit)
+
+explanatory = c("Recipient.s.Gender.", "voriconazole", "age_bin", "srcr.D.2", "wt..D.2")
+
+explanatory_multi = c("Recipient.s.Gender.", "voriconazole", "age_bin", "srcr.D.2", "wt..D.2")
+
+data$Recipient.s.Gender. <- recode(data$Recipient.s.Gender., "0" = "Female", "1" = "Male")
+
+data$dose_bin <-  recode(data$dose_bin, "0" = "less than or equal 1.5" , "1" = "more than 1.5" )
+
+dependent = "op_dose"
+dependent2 = "dose_bin"
+data %>%
+  mutate(
+        Recipient.s.Gender. = ff_label(Recipient.s.Gender., "Recipient gender"),
+        voriconazole = ff_label(voriconazole, "voriconazole"),
+        age_bin = ff_label(age_bin, "Age"),
+        phenytoin = ff_label(phenytoin, "Phenytoin")
+    ) %>% 
+    finalfit(dependent, explanatory, explanatory_multi, na_include = TRUE) -> t 
+
+colnames(t)[1:2] <- c("Predictors", " ")
+
+rmdtbl <- function(df){
+  
+bes <- autofit(theme_vanilla(flextable(df)))
+
+bes <- bg(bes, bg = "blue", part = "header")
+bes <- color(bes, color = "white", part = "header")
+
+return(bes)
+}
+
+rmdtbl(t)
+
+```
+
+
+Table 3 Univariate and multivariate logistic regression with dose to reach optimum level as the outcome variable.  
+
+Univariate logistic regression revealed that age, gender and voriconazole antifungal use are significant predictors of the optimum dose to reach ciclosporin desired plasma level. When multivariate regression was applied, the same three predictors were significant(table2). On the other hand, no interaction terms were significant(results not shown) 
+
+**let's examine the second line for interpretation. voriconazole is significant with p-value < 0.05. Confidence interval does not contain "1", which confirms that voriconazole is significant. Odds ratio is 0.07 meaning that the probability to reach optimum level at dose more than 1.5 for those who take voriconazole is 93% [(1-0.07)*100] lower than at dose <= 1.5. For the line before the last one, odds ratio is 0.037, meaning that for each 1 unit increase in serum creatinine, the probability to reach optimum level at dose more than 1.5 is reduced by 99% (1-0.01) **
+
+
+
+```{r}
+# Model diagnostics
+
+#log_model <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code, data = data)
+
+#log_model2 <- multinom(op_dose ~ voriconazole + Recipient.s.Gender. , data = data)
+
+#log_model3 <- multinom(op_dose ~ voriconazole  , data = data)
+
+#log_model4 <- multinom(op_dose ~ 1  , data = data)
+
+
+# kable(glance(log_model4), digits = 3)
+# 
+# kable(glance(log_model3), digits = 3)
+# 
+# kable(glance(log_model2), digits = 3)
+# 
+# kable(glance(log_model), digits = 3)
+
+
+
+
+
+
+#  https://data.princeton.edu/wws509/r/c6s2 
+
+# I was trying to figure out how to test for the model diagnostics, but the model in this link, had predictor variables that failed to fit, so I got confused 
+# remember to go back to the previous page in the data frame to get the data they are working with
+
+# x2 <- deviance(log_model2) - deviance(log_model)
+
+#pchisq(x2, 10, lower.tail=FALSE)
+
+# Deviance and AIC improve greatly with addition of each variable. 
+# The sequence of addition is : null model, voriconazole, gender then age
+
+```
+
+
+
+
+```{r}
+# Testing for IIA with the Hausman-McFadden Test
+
+
+library(mlogit)
+
+# https://cran.r-project.org/web/packages/mlogit/vignettes/mlogit.pdf 
+
+# preparing the data ( changing from wide to long)
+
+# Fish <- mlogit.data(Fishing, shape="wide", varying=2:9, choice="mode")
+# we don't have varying here since simply no variables depend on the op_dose 
+
+dta <- mlogit.data(data, shape = "wide", choice = "op_dose")
+
+#head(index(dta)) # this reveals a unique ID and the choice 
+
+# mod.1 <-mlogit(op_dose ~ 1|  voriconazole + Recipient.s.Gender. + age_code , reflevel = "less than or equal 1.5",   data=dta)  
+# #summary(mod.1)
+#  
+# mod.alt1 <- mlogit(op_dose ~ 1|  voriconazole + Recipient.s.Gender. + age_code , reflevel = "less than or equal 1.5",   data=dta, alt.subset = c("less than or equal 1.5","from 1.51 to 2"))
+# 
+# mod.alt2 <- mlogit(op_dose ~ 1|  voriconazole + Recipient.s.Gender. + age_code , reflevel = "less than or equal 1.5",   data=dta, alt.subset = c("less than or equal 1.5","more than 2"))
+# 
+# mod.alt3 <- mlogit(op_dose ~ 1|  voriconazole + Recipient.s.Gender. + age_code , reflevel = "less than or equal 1.5",   data=dta, alt.subset = c("from 1.51 to 2","more than 2"))
+
+#hmftest(mod.1, mod.alt1)
+#hmftest(mod.1, mod.alt2)
+#hmftest(mod.1, mod.alt3)
+
+# Multinomial logit models are valid under the Independence of Irrelevant Alternatives (IIA)
+# assumption that states that characteristics of one particular choice alternative do not impact
+# the relative probabilities of choosing other alternatives. For example, if IIA is valid, how I
+# choose between watching a movie or attending a football game is independent of whoever
+# is giving a concert that day. Violation of the IIA assumption complicates the choice model.
+# Therefore, much is gained when the IIA assumption is validated.
+# 
+# 
+# https://stats.stackexchange.com/questions/380656/checking-iia-assumption-mlogit-in-r-iris-data      in the comments 
+# 
+# In the example of the HMF-test on the help page "hmftest {mlogit}" the variable avinc is dropped because it is not varying across alternatives. None of our variables are varying over alternatives so I fear you cannot use the test. In the Econometrica paper by Hausmann and McFadden where they formulate the test they also assume constant coefficients across alternatives (which assumes that covariates are varying across alternatives)
+
+#assumption failed. However, this may not be a big deal. Simply because none of our variables are varying over alternatives. 
+
+```
+
+
+
+```{r}
+
+
+# Is it okay just to show a graph of the log-odds in the multinomial versus the logistic regressions? The log-odds do appear to change particularly for the versicolor.
+# 
+# par(mfrow=c(1,2))
+# 
+# mod_redu2<-multinom(op_dose ~ voriconazole + Recipient.s.Gender. + age_code, data = data)
+# lo_1.5 <-log(mod_redu2$fitted.values[,2]/(mod_redu2$fitted.values[,1]))
+# lo_high<-log(mod_redu2$fitted.values[,3]/(mod_redu2$fitted.values[,1]))
+# 
+# dataless<-data[which(data$op_dose=="less than or equal 1.5"|data$op_dose=="from 1.51 to 2"),]
+# mod<-glm(op_dose ~ voriconazole + Recipient.s.Gender. + age_code,family=binomial(link=logit),data=dataless)
+# plot(lo_1.5[-seq(91:119)],predict(mod))
+# abline(a=0,b=1)
+# 
+# datahigh<-data[which(data$op_dose=="less than or equal 1.5"|data$op_dose=="more than 2"),]
+# mod<-glm(op_dose ~ voriconazole + Recipient.s.Gender. + age_code, family=binomial(link=logit),data = datahigh)
+# plot(lo_high,predict(mod))
+# abline(a=0,b=1)
+
+# ana msh 3aref awsal :) 
+
+
+# http://www.talkstats.com/threads/multinomial-logistic-regression-testing-assumptions.65580/
+
+# For the MLR estimates to be unbiased (well, to some extent, of course :)), two assumptions must be in place -- (a) lack of multicollinearity, and (b) independence of irrelevant alternatives (IIA) (Starkweather, J., & Moske, A. K. (2011). Multinomial logistic regression). 
+
+#I don't have continuous predictors, so I think multi-colinearity is not a problem
+
+
+```
+
+
+Table 4 shows the predicted probabilities of reaching the desired plasma level under each dose with respect to age, gender and antifungal prescribed. The probability is presented as a percentage for ease of interpretation. 
+
+
+```{r}
+
+data$Recipient.s.Gender. <- recode(data$Recipient.s.Gender., "Female" = "0", "Male" = "1")
+
+data$Recipient.s.Gender. <- as.factor(as.numeric((data$Recipient.s.Gender.)))
+
+newdat <- data.frame(
+  Recipient.s.Gender. = as.factor(rep(levels(data$Recipient.s.Gender.),  each = 6)),
+  voriconazole = as.factor(rep(levels(as.factor(data$voriconazole)), 6)),
+  age_bin = as.factor(rep(levels(as.factor(data$age_bin))
+                                  , 4)))
+
+pred_table <- cbind(newdat, predict(test, newdat, type = "probs"))
+
+names(pred_table) <- c("Gender", "voriconazole", "Age", "probability_to_reach_level_at_dose_more_than_1.5")
+
+pred_table$Gender <- recode(pred_table$Gender, "0" = "Female", "1" = "Male")
+
+pred_table$recommended_dose <- ifelse(pred_table$probability_to_reach_level_at_dose_more_than_1.5 > 0.5, ">1.5", "<=1.5")
+
+# I used to have the code below when there was three categories for optimum dose 
+
+#cole <- pred_table %>% 
+#   dplyr::select(`<=6.5` : `>9`)
+# 
+# pred_table$recommended_dose <- colnames(cole)[max.col(cole,ties.method="first")]
+# 
+# pred_table <- pred_table %>% 
+#   rowwise() %>% 
+#   mutate(expected_percentage_of_reaching_op_dose = max(`less than or equal 1.5` , `from 1.51 to 2`,  `more than 2`))
+
+
+# library(scales)
+# 
+# pred_table <- pred_table %>% 
+#   mutate(`less than or equal 1.5` = percent(`less than or equal 1.5`),
+#          `from 1.51 to 2` = percent(`from 1.51 to 2`), 
+#          `more than 2` = percent(`more than 2`),
+#          expected_percentage_of_reaching_op_dose = percent(expected_percentage_of_reaching_op_dose))
+
+
+rmdtbl(pred_table)
+
+```
+
+```{r}
+# Recommended dose 
+
+# library(lazyeval)
+# nm1 <- names(iris)[1:4]
+# iris %>%
+#   dplyr::select(Sepal.Length : Petal.Width) %>% 
+#   mutate_(mak= interp(~pmin(v1), v1= as.name(nm1)))
+# 
+# 
+# 
+# 
+# DF <- data.frame(V1=c(2,8,1),V2=c(7,3,5),V3=c(9,6,4))
+# 
+# colnames(DF)[apply(DF,1,which.max)]
+# 
+
+
+```
+
+Table4 predicted probabilities of reaching optimum plasma level of ciclosporin
+
+
+
+Next, we applied generalized estimating equation (GEE) to account for the fact of repeated measurments of ciclosporin level. Table 4 shows the results of the GEE model. 
+
+```{r}
+
+long_data <- gather(data, key = week, value = level, CSA.mean.level.1: CSA3)
+
+data$Recipient.s.Gender. <- as.factor(data$Recipient.s.Gender.)
+data$Recipient.s.DiagNosis <- as.factor(data$Recipient.s.DiagNosis)
+data$voriconazole <- as.factor(data$voriconazole)
+data$age_bin <- as.factor(data$age_bin)
+
+
+mf <- formula(level ~ Recipient.s.Gender. + voriconazole + age_bin + phenytoin + srcr.D.2 + wt..D.2)
+
+geeInd <- geeglm(mf, id= Recipient.s.MRN., data=long_data, family=gaussian, corstr="ind")
+
+geeInd_sum <- summary(geeInd)
+
+# anova(geeInd)
+
+# geeEx <- geeglm(mf, id=Recipient.s.MRN., data=long_data, family=gaussian, corstr="ex")
+# summary(geeEx)
+# 
+# anova(geeEx)
+# 
+# geeAr1 <- geeglm(mf, id=Recipient.s.MRN., data=long_data, family=gaussian, corstr="ar1")
+# summary(geeAr1)
+# 
+# anova(geeAr1)
+
+# est <- esticon(geeInd, diag(6))
+# 
+# gee_coef <- data.frame(cbind(row.names(geeInd_sum$coefficients), est))  
+# malhash lazma 3shan broom bete3mel kol dah 
+
+gee_df <- tidy(geeInd, conf.int = TRUE)
+
+gee_df <- gee_df[2:nrow(gee_df), c(1,2,5:7)]
+
+gee_df$term <- c("Gender - Male", "voriconazole prescribed", "Age (6.5 - 9)", "Age (>9)",  "Phenytoin prescribed", "SrCr", "Weight")
+
+rmdtbl(gee_df)
+
+```
+
+
+GEE model coefficients(table 4) show that age, weight and voriconazole are significant predictors of plasma level. Older age, increased weight and voriconazole prescription increases plasma level of cicloosporin.   
+
+
+ 
+
+```{r}
+pop_mean <- tidy(emmeans(geeInd, ~ voriconazole + age_bin))
+pop_mean <- pop_mean[, c(1,2,3,6,7)]
+names(pop_mean)[1:2] <- c("voriconazole", "Age")
+rmdtbl(pop_mean)
+
+```
+
+table 5 population average according to predictors 
+
+
+If we consider patients as different populations according to their risk factors and we focused on the main predictors of plasma level, i.e. age and voriconazole prescription. We will find that we have six populations, as evident in table 5 above. We can then get the average plasma level in each population. 
+The highest plasma level is for the population with higher age and voriconazole prescription. The lowest is for the younger population with no voriconazole. The numbers are shown graphically in figure 1 for further illustration. 
+
+
+```{r fig.height= 10, fig.width= 10}
+
+plot(emmeans(geeInd, ~voriconazole + age_bin), horizontal=F, ylab="Estimated mean", las = 1)
+
+
+```
+
+figure1 population average according to predictors
+
+As can be seen, Differences are largest between the two extreme populations 
+(younger with no voriconazole) vs (older and with voriconazole)
+
+```{r}
+# It is also worth mentioning that (young with voriconazole) and (old with no voriconazole) are quite similar. This indicates that the effect of age on plasma level is similar in intensity to the effect of voriconazole on plasma level.
+```
+
+\newpage
+
+```{r}
+ 
+# data <- import("mena last V2 updated.xlsx")
+# 
+# zero2 <- filter(data, data$CSA2 == 0)
+# zero3 <- filter(data, data$CSA3 == 0)
+# the package coxphw will not work ... because there is something wrong about specification of the time dependent covariate. Moreover, the weights can be adjusted in normal cox
+# 
+# zero3$GVHD
+# zero2$GVHD  
+data$GVHD <- as.character(data$GVHD)
+data$GVHD[data$GVHD == "Yes"] <- 1
+data$GVHD[data$GVHD == "No"] <- 0
+
+# data$hundred <- as.Date(data$Date.of.Stem.Cell.Infusion.) + 100
+
+# data$GVHD.D. <- ymd(data$Date.of.Stem.Cell.Infusion.) + data$GVHD.D.
+#data$gvhd_tdc <- ifelse(is.na(data$GVHD.D.), data$hundred, data$GVHD.D.)
+
+# data$gvhd_tdc <- data$hundred
+# 
+# data$gvhd_tdc[!is.na(data$GVHD.D.)] <- data$GVHD.D.[!is.na(data$GVHD.D.)]
+# 
+# data$gvhd_tdc <- as.Date(data$gvhd_tdc)
+
+data$GVHD.D.[is.na(data$GVHD.D.)] <- 100
+
+n_data <- data %>% dplyr::select("Recipient.s.MRN.","GVHD","GVHD.D.", "Recipient.s.Gender.")
+
+colnames(n_data) <- c("id", "status", "time", "gender")
+
+
+long_data <- gather(data, key = week, value = level, CSA.mean.level.1: CSA3)
+
+colnames(long_data)[1] <- "id"
+
+long_data$week <- car::recode(long_data$week, "'CSA.mean.level.1' = 7; 'CSA.2' = 14; 'CSA3' = 21 ")
+
+# long_data$weight <- rep(1, nrow(long_data))
+# 
+# long_data$weight[long_data$week == 7 & long_data$GVHD.D. <= 10 | (long_data$week == 14 & long_data$GVHD.D. <= 18 & long_data$GVHD.D. > 10) | (long_data$week == 21 & long_data$GVHD.D. <= 25 & long_data$GVHD.D. > 18)] <- 700/18
+# 
+# long_data$weight[long_data$weight == 1.000] <- 300/(357-18)
+# 
+library(lubridate)
+
+long_data$level[long_data$level == 0] <- NA
+# according to the vignette, missing values will be carried forward ... This is a huge problem 
+
+temp <- n_data # baseline
+   
+pbc2 <- tmerge(temp, temp, id=id, death = event(time, status)) #set range
+pbc2 <- tmerge(pbc2, long_data, id=id, cyclo = tdc(week, level), options = list(na.rm=TRUE))
+
+
+pbc2$weight <- rep(1, nrow(pbc2))
+
+see <- filter(pbc2, pbc2$time - pbc2$tstart < 8 & pbc2$time - pbc2$tstart > 0) 
+
+# I multiplied 343 ( actual number after removal of deletions ) by 0.7 .. I got 240
+# then I divided the 240 among the 13 observations that met the criteria 
+
+pbc2$weight[pbc2$time - pbc2$tstart < 8 & pbc2$time - pbc2$tstart > 0] <- 240/13
+
+# here I divided the remaining 30%  (0.3*343) on the remaining observations  (343-13)
+
+pbc2$weight[pbc2$weight == 1.00] <- 103/(343-13)
+
+#sum(pbc2$weight)  # the sum should be 343, however it is here 380 because missing data are not yet deleted
+
+# pbc2 <- pbc2[complete.cases(pbc2$cyclo),]
+# 
+# sum(pbc2$weight)  # here it is after removal of cases
+
+#pbc2 <- pbc2[pbc2$cyclo != 0, ]
+
+fit1 <- coxph(Surv(time, status==1) ~ gender ,  temp)
+
+fit2 <- coxph(Surv(tstart, tstop, death==1) ~ gender + cyclo, weights = weight,
+              pbc2)
+
+fit3 <- coxph(Surv(tstart, tstop, death==1) ~ gender + log(cyclo), weights = weight,
+              pbc2)
+seee <- pbc2[pbc2$cyclo == 0, ]
+#rbind('baseline fit' = coef(fit1),
+ #     'time dependent' = coef(fit2))
+
+coxtbl <- tidy(fit3, exponentiate = TRUE)
+
+coxtbl <- coxtbl[,c(1,2,5:7)]
+names(coxtbl) <- c("Risk factor", "HR","p_value", "Lower CI", "Higher CI")
+rmdtbl(coxtbl)
+
+```
+table 7 weighted cox regression  
+ 
+Finally, We applied the weighted cox model due to the fact that effect of plasma level differs according to how close the measurment is to the development of GVHD. The closest week to the GVHD event has the heighest weight. However, results show that level of ciclosporin is not significantly predicting time to GVHD. 
+
+
+ 
+ Kindly note that age group 6.5-9 are only 12 patients 
+ 
