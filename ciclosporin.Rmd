@@ -15,6 +15,19 @@ options(scipen = 999)
 
 
 ```{r}
+# A lower incidence of grade II-IV aGVHD was reported when target CsA trough levels are achieved early in the post-transplantation period, with the time to achieving the target CsA concentration being significant [15,16]. CsA blood concentrations show high inter-and intra-individual variability; therefore, age-adjusted prospective studies with innovative approaches may offer a new insight into the optimal target and schedule [17]. ...
+
+#source
+# Pediatric acute graft‐versus‐host disease prophylaxis and treatment: Real‐life approach reveals dissimilarities compared to published
+
+# another very important article 
+# bayesian PK
+# https://www.sciencedirect.com/science/article/pii/S1083879120300483
+
+```
+
+
+```{r}
 #to do 
 
 # RPubs - Longitudinal Models in R - 1
@@ -226,7 +239,10 @@ tbl_summary(tbl2_sum, missing = "no", type = list(srcr.D.2 ~ "continuous"))  %>%
 
 
 ```
-table Transplantion,  anti-fungal prescribed, development and type of cyclosporin toxicity and GVHD are illustrated in table. Age has been categorized to allow for risk stratification of patients.
+
+Table 2  
+
+Transplantion,  anti-fungal prescribed, development and type of cyclosporin toxicity and GVHD are illustrated in table. Age has been categorized to allow for risk stratification of patients.
 
 
 ```{r}
@@ -1199,6 +1215,35 @@ Patients highlighted in red are those who developed ciclosporin toxicity. I coul
 # 
 # RPubs - Ordinal Logistic Regression
 # https://rpubs.com/heruwiryanto/Ordinal_Logistic_reg
+
+
+
+# Binary logistic regression 
+
+  # RPubs - Binary Logistic Regression
+  # https://rpubs.com/abhiisinghh/432736
+
+
+
+# LDA 
+
+# Broken Stick Model for Irregular Longitudinal Data
+# https://cran.r-project.org/web/packages/brokenstick/vignettes/brokenstick-article.html 
+
+Browse Over Longitudinal Data Graphically and Analytically in R • brolgar
+https://brolgar.njtierney.com/
+  
+  Making better spaghetti (plots): Exploring the individuals in longitudinal data with the brolgar pac - RStudio
+https://www.rstudio.com/resources/rstudioconf-2020/making-better-spaghetti-plots-exploring-the-individuals-in-longitudinal-data-with-the-brolgar-pac/
+  
+  
+Visualise longitudinal data
+https://cran.r-project.org/web/packages/lcsm/vignettes/v0-longitudinal-plots.html
+
+How can I visualize longitudinal data in ggplot2? | R FAQ
+https://stats.idre.ucla.edu/r/faq/how-can-i-visualize-longitudinal-data-in-ggplot2/
+  
+  
 
 ```
 
