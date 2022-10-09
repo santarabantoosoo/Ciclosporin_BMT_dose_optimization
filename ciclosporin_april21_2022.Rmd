@@ -1,8 +1,10 @@
 ---
 title: "ciclosporin"
-output: word_document
+author: "Hamza"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: word_document
 ---
+
 
 
 ```{r setup, include=FALSE}
@@ -15,7 +17,9 @@ options(scipen = 999)
 
 
 ```{r}
+
 # A lower incidence of grade II-IV aGVHD was reported when target CsA trough levels are achieved early in the post-transplantation period, with the time to achieving the target CsA concentration being significant [15,16]. CsA blood concentrations show high inter-and intra-individual variability; therefore, age-adjusted prospective studies with innovative approaches may offer a new insight into the optimal target and schedule [17]. ...
+
 
 #source
 # Pediatric acute graft‐versus‐host disease prophylaxis and treatment: Real‐life approach reveals dissimilarities compared to published
@@ -85,7 +89,7 @@ options(scipen = 999)
 # https://advstats.psychstat.org/book/longitudinal/index.php
 ```
 
-Data are summarized as frequencies and percentages for categorical variables. P values are calculated using Pearson's Chi-squared test and Fisher's exact test. For continuous variables, median and interquartile range for.   receiver operating characteristic (ROC) analysis was used to determine optimal cut-off for age. Binary logistic regression was applied to identify factors that affect dose needed to reach desired plasma level.  Next, predicted probabilities for reaching desired plasma level under different doses and risk factors were calculated. Generalized estimating equation(GEE) was used to detect effect of risk factors on ciclosporin plasma level, taking into consideration the repeated ciclosporin measurements. In addition, the population average, based on the GEE model was calculated. Finally, weighted time dependent cox regression was used to detect effect of risk factors on time to GVHD development. In all tests, a p-value of 0.05 or less is considered statistically significant. R Foundation for Statistical Computing, Vienna, Austria version 3.6.0 was used for the statistical analysis. R packages used in the analysis were coxphw version 4.0.1 for weighted cox regression, emmeans version 1.3.4 for calculating population mean from gee model and geepack version 1.2-1 for generalized estimation equation.  
+Data are summarized as frequencies and percentages for categorical variables. For continuous variables, median and interquartile range used to represent the data. P values were calculated using Pearson's Chi-squared test and Fisher's exact test for categorical variables. Wilcoxon rank sum test was used for continuous data.  Receiver operating characteristic (ROC) analysis was used to determine optimal cut-off for age. Binary logistic regression was applied to identify factors that affect dose needed to reach desired plasma level.  Next, predicted probabilities for reaching desired plasma level under different doses and risk factors were calculated. Generalized estimating equation(GEE) was used to detect effect of risk factors on ciclosporin plasma level, taking into consideration the repeated ciclosporin measurements. In addition, the population average, based on the GEE model was calculated. In all tests, a p-value of 0.05 or less is considered statistically significant. R Foundation for Statistical Computing, Vienna, Austria version 4.2.1 was used for the statistical analysis. R packages used in the analysis were coxphw version 4.0.1 for weighted cox regression, emmeans version 1.3.4 for calculating population mean from gee model and geepack version 1.2-1 for generalized estimation equation.  
 
 ```{r}
 # Logistic regression
@@ -467,8 +471,7 @@ It seems that having any of the features of being a female, older than 9 or taki
 
 Here we are trying to find what factors affect the dose at which the patient will reach optimum ciclosporin plasma level. We are not considering the longitudinal nature of the study. The outcome variable is divided into two levels only; dose <= 1.5 and dose > 1.5.  
 
-Univariate logistic regression revealed that age, gender and voriconazole use are significant predictors of the dose to reach ciclosporin desired plasma level. When multivariate regression was applied, the same three predictors were significant(table). On the other hand, no interaction terms were significant(results not shown) 
-
+## Univariate logistic regression 
 
 ```{r}
 
@@ -477,9 +480,36 @@ Univariate logistic regression revealed that age, gender and voriconazole use ar
 mod_bin_log <- glm(dose_2_lvl ~ voriconazole + rec_gender + age_bin + phenytoin + wt..D.2, data, family = binomial)
 
 
+data %>%
+  dplyr::select(dose_2_lvl, voriconazole, rec_gender, age_bin, phenytoin, wt..D.2) %>%
+  tbl_uvregression(
+    method = glm,
+    y = dose_2_lvl,
+    method.args = list(family = binomial),
+    exponentiate = TRUE,
+    pvalue_fun = ~style_pvalue(.x, digits = 2)
+  ) %>%
+  add_global_p() %>%  # add global p-value 
+  add_nevent() %>%    # add number of events of the outcome
+  add_q() %>%         # adjusts global p-values for multiple testing
+  bold_p() %>%        # bold p-values under a given threshold (default 0.05)
+  bold_p(t = 0.10, q = TRUE) %>% # now bold q-values under the threshold of 0.10
+  bold_labels()
+#> add_q: Adjusting p-values with
+#> `stats::p.adjust(x$table_body$p.value, method = "fdr")`
+
+```
+
+
+Univariate logistic regression revealed that age, gender, weight and voriconazole use are significant predictors of the dose to reach ciclosporin desired plasma level. When multivariate regression was applied, the same three predictors were significant(table). On the other hand, no interaction terms were significant(results not shown) 
+
+
+
+```{r}
 tbl_regression(mod_bin_log, exponentiate = TRUE)
 
 ```
+
 
 Our baseline group is reaching optimum level at a dose of 1.5 or less. 
 
@@ -1190,14 +1220,25 @@ In week 3, the two curves are almost equal.
 
 ```{r}
 
+library(matrixStats)
+ 
 var_label(data) <- list(
   age_bin = "Age group",
   dose_2_lvl = "Dose",
   CSA.toxicity = "CSA toxicity"
 )
 
+data$CSA.toxicity <- dplyr::recode(data$CSA.toxicity, "Yes" = "Toxicity", "No" = "No Toxicity")
+
+
+data <- data %>%
+  rowwise() %>%
+  mutate(
+    Maximum_level = max(c(CSA.mean.level.1,CSA.2,CSA3), na.rm = TRUE)
+  )
+
 tbl1_sum <- data %>% 
-  dplyr::select(voriconazole , rec_gender, age_bin, dose_2_lvl,  CSA.toxicity)
+  dplyr::select(voriconazole , rec_gender, age_bin, dose_2_lvl, Maximum_level, CSA.toxicity)
 
 tbl_summary(tbl1_sum, by = CSA.toxicity, missing = "no") %>% add_p() %>% add_overall()  %>% add_n %>% bold_labels() %>% italicize_levels() %>% bold_p() %>% gtsummary::as_flex_table() 
 
@@ -1205,7 +1246,7 @@ tbl_summary(tbl1_sum, by = CSA.toxicity, missing = "no") %>% add_p() %>% add_ove
 
 Relationship between ciclosporin toxicity and age, gender, voriconazole and dose for optimum level. 
 
-No relation can be detected between toxicity and the factors mentioned. 
+For each patient, the average level of ciclosprin level is calculated for each week. The maximum of all averages is calculated for each patient and is checked for its relation with ciclosporin toxicity. Although the median and interquartile range are higher for the group who experienced toxicity, results are not statistically significant. 
 
 
 
@@ -1257,6 +1298,26 @@ No relation can be detected between toxicity and the factors mentioned.
 
 ```
 
+
+```{r}
+## is there a relation between ciclosporin toxicity and CSA level?
+
+# tox <- read_excel("CSA toxicity and level.xlsx")
+# names(tox)<-make.names(names(tox),unique = TRUE)
+# 
+# tox$CSA.toxicity <- fct_collapse(tox$CSA.toxicity, "yes" = c("yes", "Yes"),
+# "no" = c('NO', 'No'))
+# 
+# tox$level_at_csa_tox <- cut(tox$level, c(0, 200, 250, 2000), labels = c("<200", "200-250", ">250"))
+# 
+# tbl_tox_lvl <- tox %>% 
+#   dplyr::select(level_at_csa_tox, CSA.toxicity)
+# 
+# tbl_summary(tbl_tox_lvl, by = CSA.toxicity , missing = "no", percent = 'column')  %>%  add_p() %>% add_overall() %>% add_n %>% bold_labels() %>% bold_p() %>% italicize_levels() %>% gtsummary::as_flex_table() 
+
+```
+
+
 ### Time to reach optimum level vs GVHD 
 
 
@@ -1292,31 +1353,45 @@ No relation can be detected between toxicity and the factors mentioned.
 
 ```
 
-is GVHD occurence related to days needed to reach optimum level?
+## Are the patients who reach optimum level early less prone to develop GVHD?
 
-I couldn't find a pattern in the data except that there is a relatively higher probability that patients who reach optimum level early are more probable to develop GVHD. 
 
 ```{r}
+# I couldn't find a pattern in the data except that there is a relatively higher probability that patients who reach optimum level early are more probable to develop GVHD. 
 
-foo <- data.frame(table(as.numeric(data$D....18), data$GVHD))
-
-
-ggplot(mapping = aes(x = Var1, y = Freq, group =1 )) +
-  geom_line(data = subset(foo, Var2 == 1), aes(color = "red")) +
-  geom_line(data = subset(foo, Var2 == 0), aes(color = "blue"))+
-  theme_minimal()+
-  labs(x = "Days to reach optimum level", y = "GVHD frequency")+
-  scale_color_discrete(name = "GVHD", labels = c("No", "Yes"))+
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-
+# foo <- data.frame(table(as.numeric(data$D....18), data$GVHD))
+# 
+# 
+# ggplot(mapping = aes(x = Var1, y = Freq, group =1 )) +
+#   geom_line(data = subset(foo, Var2 == 1), aes(color = "red")) +
+#   geom_line(data = subset(foo, Var2 == 0), aes(color = "blue"))+
+#   theme_minimal()+
+#   labs(x = "Days to reach optimum level", y = "GVHD frequency")+
+#   scale_color_discrete(name = "GVHD", labels = c("No", "Yes"))+
+#   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+# 
 # This is somehow strange. why do we have 8 patients who had GVHD when in fact they reached the optimum level on day 2? 
+
+data$day_reach_op_level <- as.numeric(data$D....18)
+
+data$week_reach_op_level <- cut(as.numeric(data$D....18), c(0, 7, 1000), labels = c("first week", 'later'))
+
+data$GVHD_label <- dplyr::recode(data$GVHD, '1' = 'GVHD', '0' = 'No GVHD')
+
+tbl_day_GVHD <- data %>% 
+  dplyr::select(day_reach_op_level, GVHD_label)
+
+tbl_summary(tbl_day_GVHD, by = GVHD_label , missing = "no", percent = 'row')  %>%  add_p() %>% add_overall() %>% add_n %>% bold_labels() %>% bold_p() %>% italicize_levels() %>% gtsummary::as_flex_table() 
 
 ```
 
+Here we compare whether the day to reach optimum level differs between those who experienced GVHD and those who didn't. Results don't show a difference between the two groups. However, the small number of patients who have experience GVHD(29) maybe too small to draw a valid conclusion. 
 
+N.B. a single patient had a missing day to reach optimum level. ['N/A']
 
 ```{r}
 # Let's examine these patients more closely. 
+
 
 ffff <- data %>% 
   filter(D....18 == 2, GVHD == 1) %>% 
@@ -1350,11 +1425,15 @@ tbl4_sum <- data %>%
   dplyr::select(GVHD_text, CSA_week1, CSA_week2, CSA_week3)
 
 
-tbl_summary(tbl4_sum, by = GVHD_text , missing = "no", percent = 'column')  %>%  add_p() %>% add_overall() %>% add_n %>% bold_labels() %>% bold_p() %>% italicize_levels() %>% gtsummary::as_flex_table() 
+tbl_summary(tbl4_sum, by = GVHD_text , missing = "no", percent = 'row')  %>%  add_p() %>% add_overall() %>% add_n %>% bold_labels() %>% bold_p() %>% italicize_levels() %>% gtsummary::as_flex_table() 
 
 ```
 
+
 For the patients that had levels <=200 in week 1, the rate of GVHD occurrence was almost double their comparator group.   
+
+
+
 
 ```{r}
 # brol_data <- as_tsibble(x = lda_data,
